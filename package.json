@@ -11,7 +11,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "binance-api-node": "^0.12.9",
+    "coingecko-api": "^1.0.10",
     "discord.js": "^14.23.2",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "multicoin-address-validator": "^0.5.26"
   }
 }
