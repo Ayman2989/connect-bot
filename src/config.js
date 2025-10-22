@@ -10,10 +10,10 @@ export const BINANCE_USE_TESTNET = process.env.BINANCE_USE_TESTNET === "true";
 
 // config.js
 export const DEPOSIT_ADDRESSES = {
-  BTC: "bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh",
-  ETH: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1",
-  LTC: "LhK2kQwiaAvhjWY799cZvMyYwnQAcxkarr",
-  SOL: "7EqQdEUwY3dZVNsVLqRz4CkVDFGmxb1CLRkTqxrmgzLC",
-  USDT: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1", // Same as ETH
-  USDC: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1", // Same as ETH
+  BTC: "15NQQioz7K9qXkFviMCEkAnucPHvfp87XD",
+  ETH: "0xc72b9146b15b2b56e28042dd42707ecdbb317550",
+  LTC: "LhuT4yi9LnRfdQS4Lj6gRK4xLLaYQDwE11",
+  SOL: "BzwshJH9iwV9K2Zsq9RiiLvdK9E6kyznLbF9KfWHM3kF",
+  USDT: "0xc72b9146b15b2b56e28042dd42707ecdbb317550", // Same as ETH
+  USDC: "0xc72b9146b15b2b56e28042dd42707ecdbb317550", // Same as ETH
 };

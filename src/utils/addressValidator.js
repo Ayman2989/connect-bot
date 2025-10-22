@@ -164,21 +164,3 @@ export default {
   getAddressWarnings,
   getExampleAddress,
 };
-
-// In interactionCreate.js - when generating deposit address:
-
-const depositInfo = await generateDepositAddress(ticketData.coin);
-ticketData.depositAddress = depositInfo.address;
-ticketData.depositStartTime = Date.now();
-ticketData.depositExpectedAmount = conversion.cryptoAmount; // ← Store exact amount
-
-// Also store globally for tracking:
-if (!client.pendingDeposits) {
-  client.pendingDeposits = new Map();
-}
-
-// Map: address+amount → ticketId
-const depositKey = `${depositInfo.address}_${conversion.cryptoAmount.toFixed(
-  8
-)}`;
-client.pendingDeposits.set(depositKey, ticketChannel.id);

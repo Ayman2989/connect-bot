@@ -12,11 +12,12 @@ import {
   checkPaymentReceived,
   sendCryptoToSeller,
   refundBuyer,
-} from "./utils/cryptoService.js";
+} from "../utils/cryptoService.js";
 import {
   validateCryptoAddress,
   getAddressWarnings,
-} from "./utils/addressValidator.js";
+} from "../utils/addressValidator.js";
+import { logTransaction } from "../utils/logger.js";
 
 export const name = "interactionCreate";
 export const once = false;
@@ -30,6 +31,18 @@ const MIN_CONFIRMATIONS = {
   USDT: 12,
   USDC: 12,
 };
+
+function getNetworkForCoin(coinSymbol) {
+  const networks = {
+    BTC: "BTC",
+    ETH: "ETH",
+    LTC: "LTC",
+    SOL: "SOL",
+    USDT: "ETH", // ERC20 uses Ethereum network
+    USDC: "ETH", // ERC20 uses Ethereum network
+  };
+  return networks[coinSymbol];
+}
 
 // ========================================
 // HELPER FUNCTIONS
@@ -106,8 +119,9 @@ async function handleTicketTimeout(channel, ticketData, client) {
             : ticketData.cryptoAmount;
           const refund = await refundBuyer(
             ticketData.coin,
-            refundAmount, // ← Refund without commission
-            buyerAddress
+            refundAmount,
+            buyerAddress,
+            getNetworkForCoin(ticketData.coin) // ✅ ADDED THIS LINE
           );
 
           const refundSuccessEmbed = new EmbedBuilder()
@@ -203,6 +217,16 @@ async function startPaymentMonitoring(channel, ticketData, client) {
         ticketData.paymentReceived = true;
         ticketData.status = "awaiting_goods_delivery";
 
+        logTransaction("deposit_confirmed", {
+          ticketId: channel.id,
+          coin: ticketData.coin,
+          amount: paymentStatus.amount,
+          txId: paymentStatus.txId,
+          buyer: ticketData.buyer,
+          seller: ticketData.seller,
+          confirmations: paymentStatus.confirmations,
+        });
+
         const buyer = await client.users.fetch(ticketData.buyer);
         const seller = await client.users.fetch(ticketData.seller);
 
@@ -254,6 +278,16 @@ async function startPaymentMonitoring(channel, ticketData, client) {
       }
     } catch (error) {
       console.error("Error checking payment:", error);
+
+      // ✅ ADD THIS:
+      logTransaction("payment_check_error", {
+        ticketId: channel.id,
+        coin: ticketData.coin,
+        expectedAmount: ticketData.cryptoAmount,
+        error: error.message,
+      });
+
+      // Don't stop monitoring on error, just log it
     }
   }, checkInterval);
 }
@@ -455,6 +489,7 @@ async function handleCommissionSelection(interaction, client) {
 
         startPaymentMonitoring(interaction.channel, ticketData, client);
       } catch (error) {
+        ticketData.processingCommission = false;
         await interaction.channel.send({
           content: "❌ Failed to generate deposit address. Please try again.",
         });
@@ -984,8 +1019,9 @@ async function handleAddressConfirmation(interaction, client) {
 
       const withdrawal = await sendCryptoToSeller(
         ticketData.coin,
-        ticketData.sellerCryptoAmount, // ← Send seller's amount (after commission)
-        ticketData.sellerAddress
+        ticketData.sellerCryptoAmount,
+        ticketData.sellerAddress,
+        getNetworkForCoin(ticketData.coin) // ✅ ADDED THIS LINE
       );
 
       ticketData.status = "completed";

@@ -1,18 +1,17 @@
 import CoinGecko from "coingecko-api";
 import Binance from "binance-api-node";
-import fs from "fs";
-import path from "path";
 import {
   BINANCE_API_KEY,
   BINANCE_API_SECRET,
   BINANCE_USE_TESTNET,
   DEPOSIT_ADDRESSES as CONFIG_DEPOSIT_ADDRESSES,
 } from "../config.js";
+import { logTransaction } from "./logger.js"; // ✅ ADDED THIS
 
 const CoinGeckoClient = new CoinGecko();
 
 // Initialize Binance client
-const binanceClient = Binance({
+const binanceClient = Binance.default({
   apiKey: BINANCE_API_KEY,
   apiSecret: BINANCE_API_SECRET,
   // Use testnet for development
@@ -134,7 +133,7 @@ export async function checkPaymentReceived(coinSymbol, expectedAmount, since) {
 
     // ✅ FIXED: Increased tolerance from 0.00001 to 0.0001 (0.01%)
     // This accounts for rounding errors and unique suffix variations
-    const tolerance = 0.0001;
+    const tolerance = 0.001; // ✅ CHANGED from 0.0001 to 0.001
     const minAmount = expectedAmount * (1 - tolerance);
     const maxAmount = expectedAmount * (1 + tolerance);
 
@@ -171,10 +170,14 @@ export async function sendCryptoToSeller(
   coinSymbol,
   amount,
   sellerAddress,
-  network = "default"
+  network
 ) {
   try {
     const coin = BINANCE_SYMBOLS[coinSymbol];
+
+    if (!network) {
+      throw new Error(`Network parameter is required for ${coinSymbol}`);
+    }
 
     // Withdraw to seller's address
     const withdrawal = await binanceClient.withdraw({
@@ -184,12 +187,27 @@ export async function sendCryptoToSeller(
       network: network,
     });
 
+    logTransaction("withdrawal", {
+      coin: coinSymbol,
+      amount: amount,
+      address: sellerAddress,
+      network: network,
+      withdrawId: withdrawal.id,
+      txId: withdrawal.txId,
+    });
+
     return {
       success: true,
       withdrawId: withdrawal.id,
       txId: withdrawal.txId,
     };
   } catch (error) {
+    logTransaction("withdrawal_error", {
+      coin: coinSymbol,
+      amount: amount,
+      address: sellerAddress,
+      error: error.message,
+    });
     console.error("Error sending crypto to seller:", error);
     throw new Error("Failed to send crypto. Please contact support.");
   }
@@ -224,14 +242,13 @@ export async function getBalance(coinSymbol) {
  * Refund crypto to buyer
  * ✅ FIXED: Added network parameter for consistency
  */
-export async function refundBuyer(
-  coinSymbol,
-  amount,
-  buyerAddress,
-  network = "default"
-) {
+export async function refundBuyer(coinSymbol, amount, buyerAddress, network) {
   try {
     const coin = BINANCE_SYMBOLS[coinSymbol];
+
+    if (!network) {
+      throw new Error(`Network parameter is required for ${coinSymbol}`);
+    }
 
     const withdrawal = await binanceClient.withdraw({
       coin: coin,
@@ -240,12 +257,27 @@ export async function refundBuyer(
       network: network, // ✅ FIXED: Added network parameter
     });
 
+    logTransaction("refund", {
+      coin: coinSymbol,
+      amount: amount,
+      address: buyerAddress,
+      network: network,
+      withdrawId: withdrawal.id,
+      txId: withdrawal.txId,
+    });
+
     return {
       success: true,
       withdrawId: withdrawal.id,
       txId: withdrawal.txId,
     };
   } catch (error) {
+    logTransaction("refund_error", {
+      coin: coinSymbol,
+      amount: amount,
+      address: buyerAddress,
+      error: error.message,
+    });
     console.error("CRITICAL: Refund failed:", error);
     throw new Error("Failed to refund buyer. CONTACT SUPPORT IMMEDIATELY!");
   }
@@ -254,18 +286,6 @@ export async function refundBuyer(
 /**
  * Log transaction to file for audit trail
  */
-export function logTransaction(type, data) {
-  const logEntry = {
-    timestamp: new Date().toISOString(),
-    type: type, // 'deposit', 'withdrawal', 'refund', 'error'
-    ...data,
-  };
-
-  const logFile = path.join(process.cwd(), "transactions.log");
-  fs.appendFileSync(logFile, JSON.stringify(logEntry) + "\n");
-
-  console.log("Transaction logged:", logEntry);
-}
 
 export default {
   convertUSDToCrypto,
@@ -274,5 +294,4 @@ export default {
   sendCryptoToSeller,
   getBalance,
   refundBuyer,
-  logTransaction,
 };
