@@ -306,15 +306,6 @@ async function handleCommissionSelection(interaction, client) {
     return;
   }
 
-  // ✅ RACE CONDITION LOCK
-  if (ticketData.processingCommission) {
-    await interaction.reply({
-      content: "⏳ Processing commission agreement... please wait.",
-      ephemeral: true,
-    });
-    return;
-  }
-
   // Check if user is part of this ticket
   if (userId !== ticketData.buyer && userId !== ticketData.seller) {
     await interaction.reply({
@@ -366,9 +357,14 @@ async function handleCommissionSelection(interaction, client) {
     ephemeral: true,
   });
 
-  // Check if both have voted
-  if (ticketData.commissionVotes.buyer && ticketData.commissionVotes.seller) {
-    ticketData.processingCommission = true; // ✅ LOCK IT
+  // ✅ CHECK IF BOTH HAVE VOTED *AND* NOT ALREADY PROCESSING
+  if (
+    ticketData.commissionVotes.buyer &&
+    ticketData.commissionVotes.seller &&
+    !ticketData.processingCommission
+  ) {
+    // ✅ SET LOCK IMMEDIATELY - FIRST ONE HERE WINS
+    ticketData.processingCommission = true;
 
     const buyer = await client.users.fetch(ticketData.buyer);
     const seller = await client.users.fetch(ticketData.seller);
@@ -616,6 +612,7 @@ async function handleRoleSelection(interaction, client) {
     return;
   }
 
+  // ✅ ASSIGN ROLE
   if (role === "buyer") {
     ticketData.buyer = userId;
   } else {
@@ -627,7 +624,15 @@ async function handleRoleSelection(interaction, client) {
     ephemeral: true,
   });
 
-  if (ticketData.buyer && ticketData.seller) {
+  // ✅ CHECK IF BOTH ROLES ARE FILLED *AND* NOT ALREADY PROCESSING
+  if (
+    ticketData.buyer &&
+    ticketData.seller &&
+    !ticketData.processingRoleSelection
+  ) {
+    // ✅ SET LOCK IMMEDIATELY - FIRST ONE HERE WINS
+    ticketData.processingRoleSelection = true;
+
     const buyer = await client.users.fetch(ticketData.buyer);
     const seller = await client.users.fetch(ticketData.seller);
 
@@ -733,7 +738,24 @@ async function handleSellerApproval(interaction, client) {
     // Amount approved - now ask about commission
     ticketData.status = "awaiting_commission_agreement";
 
-    const commissionAmount = 1.0; // $1 flat fee
+    // Calculate base commission
+    let commissionAmount = 0;
+    const amount = ticketData.amount;
+
+    if (amount < 10) {
+      commissionAmount = 0; // No commission for deals under $10
+    } else if (amount < 50) {
+      commissionAmount = 1.0; // $1 for deals $10-$49.99
+    } else if (amount < 300) {
+      commissionAmount = 2.0; // $2 for deals $50-$299.99
+    } else {
+      commissionAmount = amount * 0.01; // 1% for deals $300+
+    }
+
+    // Add $1 extra for USDT/USDC (unless it's a no-commission deal)
+    if (ticketData.coin === "USDT" || ticketData.coin === "USDC") {
+      commissionAmount += 1.0;
+    }
     ticketData.commissionAmount = commissionAmount;
 
     const commissionEmbed = new EmbedBuilder()
@@ -813,6 +835,62 @@ async function handleSellerApproval(interaction, client) {
           `${buyer}, please enter a new amount.`
       )
       .setColor("#FF0000");
+
+    //
+
+    const amountCollector = interaction.channel.createMessageCollector({
+      filter: (m) => m.author.id === ticketData.buyer,
+      max: 1,
+      time: 300000,
+    });
+
+    amountCollector.on("collect", async (message) => {
+      const amount = parseFloat(message.content.trim());
+
+      if (isNaN(amount) || amount <= 0) {
+        await interaction.channel.send({
+          content:
+            "❌ Invalid amount. Please enter a valid number (e.g., 100 or 99.99)",
+        });
+        amountCollector.resetTimer();
+        return;
+      }
+
+      ticketData.amount = amount;
+
+      await interaction.channel.permissionOverwrites.edit(ticketData.buyer, {
+        SendMessages: false,
+      });
+
+      const approvalEmbed = new EmbedBuilder()
+        .setTitle("💵 Amount Confirmation")
+        .setDescription(
+          `${buyer} wants to pay **$${amount.toFixed(2)} USD**\n\n` +
+            `${seller}, do you agree with this amount?`
+        )
+        .setColor("#FFA500");
+
+      const approveButton = new ButtonBuilder()
+        .setCustomId(`approve_${channelId}`)
+        .setLabel("✅ I Agree")
+        .setStyle(ButtonStyle.Success);
+
+      const rejectButton = new ButtonBuilder()
+        .setCustomId(`reject_${channelId}`)
+        .setLabel("❌ I Reject")
+        .setStyle(ButtonStyle.Danger);
+
+      const approvalRow = new ActionRowBuilder().addComponents(
+        approveButton,
+        rejectButton
+      );
+
+      await interaction.channel.send({
+        content: `${seller}`,
+        embeds: [approvalEmbed],
+        components: [approvalRow],
+      });
+    });
 
     // ✅ FIXED: Use correct variables
     await interaction.update({
@@ -1446,6 +1524,7 @@ export async function execute(interaction, client) {
               sellerReceivesAmount: null, // Final amount seller gets (after commission)
               sellerCryptoAmount: null, // Crypto amount seller receives
               processingCommission: false, // Race condition lock
+              processingRoleSelection: false, // ✅ ADD THIS
             };
 
             client.ticketData.set(ticketChannel.id, ticketData);
