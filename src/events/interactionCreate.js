@@ -324,6 +324,26 @@ async function handleCommissionSelection(interaction, client) {
     return;
   }
 
+  // ✅ CHECK IF THIS USER ALREADY VOTED
+  const isBuyer = userId === ticketData.buyer;
+  const isSeller = userId === ticketData.seller;
+
+  if (isBuyer && ticketData.commissionVotes.buyer) {
+    await interaction.reply({
+      content: "❌ You already voted! Waiting for the other party...",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (isSeller && ticketData.commissionVotes.seller) {
+    await interaction.reply({
+      content: "❌ You already voted! Waiting for the other party...",
+      ephemeral: true,
+    });
+    return;
+  }
+
   // Determine which option they voted for
   let vote;
   if (customId.includes("_buyer_")) {
@@ -335,7 +355,7 @@ async function handleCommissionSelection(interaction, client) {
   }
 
   // Record their vote
-  if (userId === ticketData.buyer) {
+  if (isBuyer) {
     ticketData.commissionVotes.buyer = vote;
   } else {
     ticketData.commissionVotes.seller = vote;
@@ -749,21 +769,17 @@ async function handleSellerApproval(interaction, client) {
 
     const buyerPaysBtn = new ButtonBuilder()
       .setCustomId(`commission_buyer_${channelId}`)
-      .setLabel(
-        `Buyer Pays ($${(ticketData.amount + commissionAmount).toFixed(2)})`
-      )
+      .setLabel(`Buyer Pays All`)
       .setStyle(ButtonStyle.Primary);
 
     const sellerPaysBtn = new ButtonBuilder()
       .setCustomId(`commission_seller_${channelId}`)
-      .setLabel(
-        `Seller Pays ($${(ticketData.amount - commissionAmount).toFixed(2)})`
-      )
+      .setLabel(`Seller Pays All`)
       .setStyle(ButtonStyle.Success);
 
     const splitBtn = new ButtonBuilder()
       .setCustomId(`commission_split_${channelId}`)
-      .setLabel(`Split 50/50 ($${(commissionAmount / 2).toFixed(2)} each)`)
+      .setLabel(`Split 50/50`)
       .setStyle(ButtonStyle.Secondary);
 
     const commissionRow = new ActionRowBuilder().addComponents(
@@ -772,7 +788,14 @@ async function handleSellerApproval(interaction, client) {
       splitBtn
     );
 
+    // ✅ Remove buttons from old message
     await interaction.update({
+      embeds: [interaction.message.embeds[0]],
+      components: [],
+    });
+
+    // ✅ Send fresh message with 3 buttons
+    await interaction.channel.send({
       embeds: [commissionEmbed],
       components: [commissionRow],
     });
@@ -791,6 +814,7 @@ async function handleSellerApproval(interaction, client) {
       )
       .setColor("#FF0000");
 
+    // ✅ FIXED: Use correct variables
     await interaction.update({
       embeds: [rejectEmbed],
       components: [],
