@@ -1,1 +1,16 @@
 {"timestamp":"2025-10-22T21:43:24.083Z","type":"payment_check_error","ticketId":"1430672005492899971","coin":"BTC","expectedAmount":0.00010320693716988906,"error":"Failed to check payment status."}
+{"timestamp":"2025-10-25T13:48:35.999Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:49:35.957Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:50:36.065Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:51:35.966Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:52:36.073Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:53:36.076Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:54:36.283Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:55:36.086Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-25T13:56:36.084Z","type":"payment_check_error","ticketId":"1431635478754627715","coin":"LTC","expectedAmount":0.010407595553334599,"error":"Unknown Channel"}
+{"timestamp":"2025-10-26T19:02:15.464Z","type":"deposit_confirmed","ticketId":"1432079149601652798","coin":"LTC","amount":0.01008596,"txId":"Off-chain transfer 316202134802","buyer":"1428073280094470218","seller":"1377090183056330755","confirmations":"1/3","forcedByTimer":true}
+{"timestamp":"2025-10-26T19:03:43.227Z","type":"withdrawal_error","coin":"LTC","amount":0.010085849363281546,"address":"LVnMJNKkJdEVwTA1KiV8oZrneDkVcSmQbN","error":"Withdrawal amount LTC must be an integer of 0.00000001."}
+{"timestamp":"2025-10-26T22:36:52.841Z","type":"deposit_confirmed","ticketId":"1432133709695553576","coin":"LTC","amount":0.00999398,"txId":"Off-chain transfer 316246132183","buyer":"1428073280094470218","seller":"1377090183056330755","confirmations":"1/3","forcedByTimer":true}
+{"timestamp":"2025-10-26T22:38:14.159Z","type":"withdrawal","coin":"LTC","amount":0.00999362,"address":"LVnMJNKkJdEVwTA1KiV8oZrneDkVcSmQbN","network":"LTC","withdrawId":"4096b663b40e435cbc13fee0e4d0a10b"}
+{"timestamp":"2025-10-26T22:53:57.527Z","type":"deposit_confirmed","ticketId":"1432137945053139116","coin":"LTC","amount":0.01496616,"txId":"Off-chain transfer 316250361474","buyer":"1377090183056330755","seller":"1428073280094470218","confirmations":"1/3","forcedByTimer":true}
+{"timestamp":"2025-10-26T22:59:04.864Z","type":"withdrawal","coin":"LTC","amount":0.009978,"address":"LhuT4yi9LnRfdQS4Lj6gRK4xLLaYQDwE11","network":"LTC","withdrawId":"3f0c44bd6ce84eb7a7c6dc99b9f79d76"}

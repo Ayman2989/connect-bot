@@ -182,22 +182,76 @@ async function handleTicketTimeout(channel, ticketData, client) {
   }
 }
 
+function getBlockExplorerLink(coinSymbol, txId, address = null) {
+  const explorers = {
+    BTC: {
+      tx: `https://www.blockchain.com/btc/tx/${txId}`,
+      address: `https://www.blockchain.com/btc/address/${address}`,
+    },
+    ETH: {
+      tx: `https://etherscan.io/tx/${txId}`,
+      address: `https://etherscan.io/address/${address}`,
+    },
+    LTC: {
+      tx: `https://blockchair.com/litecoin/transaction/${txId}`,
+      address: `https://blockchair.com/litecoin/address/${address}`,
+    },
+    SOL: {
+      tx: `https://solscan.io/tx/${txId}`,
+      address: `https://solscan.io/account/${address}`,
+    },
+    USDT: {
+      tx: `https://etherscan.io/tx/${txId}`,
+      address: `https://etherscan.io/token/0xdac17f958d2ee523a2206206994597c13d831ec7?a=${address}`,
+    },
+    USDC: {
+      tx: `https://etherscan.io/tx/${txId}`,
+      address: `https://etherscan.io/token/0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48?a=${address}`,
+    },
+  };
+
+  if (txId) {
+    return explorers[coinSymbol]?.tx || "#";
+  } else if (address) {
+    return explorers[coinSymbol]?.address || "#";
+  }
+  return "#";
+}
+
 async function startPaymentMonitoring(channel, ticketData, client) {
   const checkInterval = 60000; // Check every 1 minute
   const timeoutAt = ticketData.createdAt + TICKET_TIMEOUT;
 
+  // ✅ TRACK IF WE ALREADY NOTIFIED
+  let hasNotifiedPaymentDetected = false;
+  let paymentDetectedTime = null; // ✅ Track when payment first detected
+
   const paymentChecker = setInterval(async () => {
-    // CHECK IF TICKET TIMED OUT
-    if (Date.now() >= timeoutAt) {
+    // ✅ CHECK IF CHANNEL STILL EXISTS
+    let activeChannel;
+    try {
+      activeChannel = await client.channels.fetch(channel.id);
+    } catch (error) {
+      console.log(`⚠️  Channel deleted. Stopping monitoring.`);
       clearInterval(paymentChecker);
-      await channel.send({
-        content:
-          "⏱️ Payment monitoring timed out. Please contact support if you sent the payment.",
-      });
+      if (client.ticketData && client.ticketData.has(channel.id)) {
+        client.ticketData.delete(channel.id);
+      }
       return;
     }
 
-    // Check if ticket status changed
+    // CHECK TIMEOUT
+    if (Date.now() >= timeoutAt) {
+      clearInterval(paymentChecker);
+      await activeChannel
+        .send({
+          content: "⏱️ Payment monitoring timed out.",
+        })
+        .catch((err) => console.error(err.message));
+      return;
+    }
+
+    // CHECK STATUS
     if (["timeout", "refunded", "completed"].includes(ticketData.status)) {
       clearInterval(paymentChecker);
       return;
@@ -212,7 +266,19 @@ async function startPaymentMonitoring(channel, ticketData, client) {
 
       const minConf = MIN_CONFIRMATIONS[ticketData.coin] || 6;
 
-      if (paymentStatus.received && paymentStatus.confirmations >= minConf) {
+      // ✅ If payment detected for FIRST TIME, record timestamp
+      if (paymentStatus.received && !paymentDetectedTime) {
+        paymentDetectedTime = Date.now();
+      }
+
+      // ✅ Check if 5 minutes passed since detection
+      const fiveMinutesPassed =
+        paymentDetectedTime &&
+        Date.now() - paymentDetectedTime >= 5 * 60 * 1000;
+
+      // ✅ SHOW CONFIRMATION AFTER 5 MINUTES
+      if (paymentStatus.received && fiveMinutesPassed) {
+        // ✅ STOP CHECKING - Payment confirmed!
         clearInterval(paymentChecker);
         ticketData.paymentReceived = true;
         ticketData.status = "awaiting_goods_delivery";
@@ -225,11 +291,18 @@ async function startPaymentMonitoring(channel, ticketData, client) {
           buyer: ticketData.buyer,
           seller: ticketData.seller,
           confirmations: paymentStatus.confirmations,
+          forcedByTimer: true,
         });
 
         const buyer = await client.users.fetch(ticketData.buyer);
         const seller = await client.users.fetch(ticketData.seller);
 
+        const txLink = getBlockExplorerLink(
+          ticketData.coin,
+          paymentStatus.txId
+        );
+
+        // ✅ EMBED 1: Payment Confirmed
         const paymentConfirmedEmbed = new EmbedBuilder()
           .setTitle("✅ Payment Confirmed!")
           .setDescription(
@@ -237,18 +310,19 @@ async function startPaymentMonitoring(channel, ticketData, client) {
               ticketData.coin
             }**!\n\n` +
               `**Transaction ID:** \`${paymentStatus.txId}\`\n` +
-              `**Confirmations:** ${paymentStatus.confirmations}/${minConf}\n\n` +
+              `**Confirmations:** ${paymentStatus.confirmations}/${minConf}\n` +
+              `**Track Transaction:** [View on Block Explorer](${txLink})\n\n` +
               `${seller}, you can now deliver the goods/service to ${buyer}.\n` +
               `Once ${buyer} receives everything, they will confirm below.`
           )
           .setColor("#00FF00");
 
-        await channel.send({
+        await activeChannel.send({
           content: `${buyer} ${seller}`,
           embeds: [paymentConfirmedEmbed],
         });
 
-        // Ask seller to confirm they'll deliver
+        // ✅ EMBED 2: Delivery Button
         const deliveryEmbed = new EmbedBuilder()
           .setTitle("📦 Goods/Service Delivery")
           .setDescription(
@@ -265,21 +339,33 @@ async function startPaymentMonitoring(channel, ticketData, client) {
           confirmDeliveryBtn
         );
 
-        await channel.send({
+        await activeChannel.send({
           content: `${seller}`,
           embeds: [deliveryEmbed],
           components: [deliveryRow],
         });
-      } else if (paymentStatus.received) {
-        // Payment received but not enough confirmations
-        await channel.send({
-          content: `⏳ Payment detected! Waiting for confirmations: ${paymentStatus.confirmations}/${minConf}`,
-        });
-      }
-    } catch (error) {
-      console.error("Error checking payment:", error);
+      } else if (paymentStatus.received && !hasNotifiedPaymentDetected) {
+        // ✅ FIRST TIME DETECTION - Show message ONCE
+        const txLink = getBlockExplorerLink(
+          ticketData.coin,
+          paymentStatus.txId
+        );
 
-      // ✅ ADD THIS:
+        await activeChannel
+          .send({
+            content:
+              `⏳ **Payment detected!** Waiting for confirmations: ${paymentStatus.confirmations}/${minConf}\n\n` +
+              `📍 **Track your transaction:** ${txLink}\n` +
+              `⏱️ Payment will be confirmed in ~5 minutes.`,
+          })
+          .catch((err) => console.error(err.message));
+
+        hasNotifiedPaymentDetected = true;
+      }
+      // ✅ REMOVED: No more confirmation updates!
+    } catch (error) {
+      console.error("Error checking payment:", error.message);
+
       logTransaction("payment_check_error", {
         ticketId: channel.id,
         coin: ticketData.coin,
@@ -287,9 +373,17 @@ async function startPaymentMonitoring(channel, ticketData, client) {
         error: error.message,
       });
 
-      // Don't stop monitoring on error, just log it
+      if (error.code === 10003 || error.message.includes("Unknown Channel")) {
+        console.log(`⚠️  Channel not found. Stopping monitoring.`);
+        clearInterval(paymentChecker);
+        if (client.ticketData && client.ticketData.has(channel.id)) {
+          client.ticketData.delete(channel.id);
+        }
+      }
     }
   }, checkInterval);
+
+  ticketData.paymentCheckInterval = paymentChecker;
 }
 
 async function handleCommissionSelection(interaction, client) {
@@ -467,17 +561,22 @@ async function handleCommissionSelection(interaction, client) {
         const depositEmbed = new EmbedBuilder()
           .setTitle("📥 BUYER: Send Payment to Escrow")
           .setDescription(
-            `${buyer}, send **exactly ${conversion.cryptoAmount.toFixed(8)} ${
-              ticketData.coin
-            }** to:\n\n` +
-              `\`\`\`${depositInfo.address}\`\`\`\n\n` +
+            `${buyer}, send **exactly** \`${conversion.cryptoAmount.toFixed(
+              8
+            )}\` ${ticketData.coin} to:\n\n` +
+              `\`${depositInfo.address}\`\n\n` + // 👈 Tap-to-copy on mobile
               `⚠️ **CRITICAL INSTRUCTIONS:**\n` +
               `• Send ONLY ${ticketData.coin} to this address\n` +
               `• Send the EXACT amount shown above\n` +
               `• Do NOT send from an exchange\n` +
               `• Use a personal wallet you control\n\n` +
               `⏰ **This ticket expires in 30 minutes**\n` +
-              `The bot will automatically detect your payment.`
+              `The bot will automatically detect your payment.\n\n` +
+              `📍 **Monitor address:** ${getBlockExplorerLink(
+                ticketData.coin,
+                null,
+                depositInfo.address
+              )}`
           )
           .setColor("#FFA500")
           .setFooter({
@@ -958,10 +1057,20 @@ async function handleDeliveryConfirmation(interaction, client) {
     notReceivedButton
   );
 
-  await interaction.update({
-    embeds: [deliveryConfirmedEmbed],
-    components: [confirmRow],
-  });
+  // ✅ FIX: Try both methods
+  try {
+    await interaction.update({
+      embeds: [deliveryConfirmedEmbed],
+      components: [confirmRow],
+    });
+  } catch (error) {
+    // ✅ Fallback: If update fails, reply with new message
+    console.log("Update failed, sending new message:", error.message);
+    await interaction.reply({
+      embeds: [deliveryConfirmedEmbed],
+      components: [confirmRow],
+    });
+  }
 }
 
 async function handleBuyerConfirmation(interaction, client) {
