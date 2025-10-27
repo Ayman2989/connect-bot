@@ -14,3 +14,5 @@
 {"timestamp":"2025-10-26T22:38:14.159Z","type":"withdrawal","coin":"LTC","amount":0.00999362,"address":"LVnMJNKkJdEVwTA1KiV8oZrneDkVcSmQbN","network":"LTC","withdrawId":"4096b663b40e435cbc13fee0e4d0a10b"}
 {"timestamp":"2025-10-26T22:53:57.527Z","type":"deposit_confirmed","ticketId":"1432137945053139116","coin":"LTC","amount":0.01496616,"txId":"Off-chain transfer 316250361474","buyer":"1377090183056330755","seller":"1428073280094470218","confirmations":"1/3","forcedByTimer":true}
 {"timestamp":"2025-10-26T22:59:04.864Z","type":"withdrawal","coin":"LTC","amount":0.009978,"address":"LhuT4yi9LnRfdQS4Lj6gRK4xLLaYQDwE11","network":"LTC","withdrawId":"3f0c44bd6ce84eb7a7c6dc99b9f79d76"}
+{"timestamp":"2025-10-27T22:22:40.291Z","type":"deposit_confirmed","ticketId":"1432492664871325768","coin":"LTC","amount":0.00999678,"txId":"Off-chain transfer 316675704619","buyer":"1428073280094470218","seller":"1377090183056330755","confirmations":"1/3","forcedByTimer":true}
+{"timestamp":"2025-10-27T22:23:59.650Z","type":"withdrawal","coin":"LTC","amount":0.00999645,"address":"LVnMJNKkJdEVwTA1KiV8oZrneDkVcSmQbN","network":"LTC","withdrawId":"21902a8331c6443792533f86e69449d5"}

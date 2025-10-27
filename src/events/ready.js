@@ -23,37 +23,37 @@ const options = [
     label: "Bitcoin (BTC)",
     description: "Pay with Bitcoin",
     value: "BTC",
-    emoji: "🪙",
+    emoji: { id: "1432442120903594104", name: "btc" },
   },
   {
     label: "Litecoin (LTC)",
     description: "Pay with Litecoin",
     value: "LTC",
-    emoji: "💎",
+    emoji: { id: "1432442117426385067", name: "ltc" },
   },
   {
     label: "Ethereum (ETH)",
     description: "Pay with Ethereum",
     value: "ETH",
-    emoji: "⚡",
+    emoji: { id: "1432442114981232811", name: "eth" },
   },
   {
     label: "Solana (SOL)",
     description: "Pay with Solana",
     value: "SOL",
-    emoji: "🌞",
+    emoji: { id: "1432442111147638978", name: "sol" },
   },
   {
     label: "USDT (Tether)",
     description: "Pay with Tether",
     value: "USDT",
-    emoji: "💵",
+    emoji: { id: "1432442107435417641", name: "usdt" },
   },
   {
     label: "USDC (USD Coin)",
     description: "Pay with USD Coin",
     value: "USDC",
-    emoji: "💸",
+    emoji: { id: "1432442123957043413", name: "usdc" },
   },
 ];
 

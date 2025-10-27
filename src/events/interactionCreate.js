@@ -66,6 +66,60 @@ function startTicketTimeout(channel, ticketData, client) {
   }, timeRemaining);
 }
 
+// ✅ NEW FUNCTION: Schedule channel deletion after deal completion
+async function scheduleChannelDeletion(
+  channel,
+  ticketData,
+  client,
+  delayMinutes = 30
+) {
+  const buyer = await client.users.fetch(ticketData.buyer);
+  const seller = await client.users.fetch(ticketData.seller);
+
+  const deleteTime = delayMinutes * 60 * 1000; // Convert to milliseconds
+
+  const notificationEmbed = new EmbedBuilder()
+    .setTitle("✅ Deal Completed Successfully")
+    .setDescription(
+      `This ticket will remain open for ${delayMinutes} more minutes for your reference.\n\n` +
+        `⏰ **Auto-deletion in ${delayMinutes} minutes**`
+    )
+    .setColor("#00FF00");
+
+  await channel.send({
+    content: `${buyer} ${seller}`,
+    embeds: [notificationEmbed],
+  });
+
+  // Schedule deletion warning (1 minute before actual deletion)
+  setTimeout(async () => {
+    try {
+      const finalWarning = new EmbedBuilder()
+        .setTitle("🗑️ Channel Closing")
+        .setDescription(`This channel will be deleted in 1 minute.`)
+        .setColor("#FFA500");
+
+      await channel.send({ embeds: [finalWarning] });
+
+      // Final deletion after 1 minute warning
+      setTimeout(async () => {
+        try {
+          await channel.delete(
+            "Deal completed - auto cleanup after 30 minutes"
+          );
+          console.log(
+            `🗑️ Ticket channel ${channel.id} deleted after deal completion`
+          );
+        } catch (error) {
+          console.error("Error deleting channel:", error);
+        }
+      }, 60000); // 1 minute warning
+    } catch (error) {
+      console.error("Error sending deletion warning:", error);
+    }
+  }, deleteTime - 60000); // Schedule warning 1 minute before deletion
+}
+
 async function handleTicketTimeout(channel, ticketData, client) {
   const buyer = await client.users.fetch(ticketData.buyer);
   const seller = await client.users.fetch(ticketData.seller);
@@ -158,6 +212,17 @@ async function handleTicketTimeout(channel, ticketData, client) {
             );
             console.log(`   Ticket ID: ${channel.id}`);
           }
+          // ✅ DELETE CHANNEL AFTER 1 MINUTE
+          setTimeout(async () => {
+            try {
+              await channel.delete("Ticket timeout - refund processed");
+              console.log(
+                `🗑️ Ticket channel ${channel.id} deleted after refund`
+              );
+            } catch (error) {
+              console.error("Error deleting channel:", error);
+            }
+          }, 60000);
         } catch (error) {
           await channel.send({
             content: `❌ CRITICAL ERROR: Refund failed. Please contact support immediately with ticket ID: ${channel.id}`,
@@ -165,20 +230,50 @@ async function handleTicketTimeout(channel, ticketData, client) {
           console.error("CRITICAL: Refund failed:", error);
         }
       });
+      // ✅ DELETE CHANNEL IF NO REFUND ADDRESS PROVIDED
+      refundCollector.on("end", async (collected) => {
+        if (collected.size === 0) {
+          await channel.send({
+            content: `⏰ No refund address provided. Channel will be deleted in 1 minute.`,
+          });
+
+          setTimeout(async () => {
+            try {
+              await channel.delete("No refund address provided");
+              console.log(
+                `🗑️ Ticket channel ${channel.id} deleted - no refund address`
+              );
+            } catch (error) {
+              console.error("Error deleting channel:", error);
+            }
+          }, 60000);
+        }
+      });
     } catch (error) {
       console.error("Error processing timeout refund:", error);
     }
   } else {
-    // No payment received - just close
+    // ✅ No payment received - DELETE AFTER 1 MINUTE
     const timeoutEmbed = new EmbedBuilder()
       .setTitle("⏰ Ticket Timeout")
       .setDescription(
-        `This ticket has exceeded the 30-minute time limit and will be closed.`
+        `This ticket has exceeded the 30-minute time limit.\n\n` +
+          `**This channel will be deleted in 1 minute.**`
       )
       .setColor("#FFA500");
 
     await channel.send({ embeds: [timeoutEmbed] });
     ticketData.status = "timeout";
+
+    // ✅ DELETE AFTER 1 MINUTE
+    setTimeout(async () => {
+      try {
+        await channel.delete("Ticket timeout - no payment received");
+        console.log(`🗑️ Ticket channel ${channel.id} deleted after timeout`);
+      } catch (error) {
+        console.error("Error deleting channel:", error);
+      }
+    }, 60000);
   }
 }
 
@@ -274,7 +369,7 @@ async function startPaymentMonitoring(channel, ticketData, client) {
       // ✅ Check if 5 minutes passed since detection
       const fiveMinutesPassed =
         paymentDetectedTime &&
-        Date.now() - paymentDetectedTime >= 5 * 60 * 1000;
+        Date.now() - paymentDetectedTime >= 3 * 60 * 1000;
 
       // ✅ SHOW CONFIRMATION AFTER 5 MINUTES
       if (paymentStatus.received && fiveMinutesPassed) {
@@ -354,7 +449,7 @@ async function startPaymentMonitoring(channel, ticketData, client) {
         await activeChannel
           .send({
             content:
-              `⏳ **Payment detected!** Waiting for confirmations: ${paymentStatus.confirmations}/${minConf}\n\n` +
+              `<a:loading:1432441197527302246> **Payment detected!** Waiting for confirmations: ${paymentStatus.confirmations}/${minConf}\n\n` +
               `📍 **Track your transaction:** ${txLink}\n` +
               `⏱️ Payment will be confirmed in ~5 minutes.`,
           })
@@ -1059,7 +1154,7 @@ async function handleDeliveryConfirmation(interaction, client) {
 
   // ✅ FIX: Try both methods
   try {
-    await interaction.update({
+    await interaction.create.send({
       embeds: [deliveryConfirmedEmbed],
       components: [confirmRow],
     });
@@ -1235,7 +1330,7 @@ async function handleAddressConfirmation(interaction, client) {
         getNetworkForCoin(ticketData.coin) // ✅ ADDED THIS LINE
       );
 
-      ticketData.status = "completed";
+      await new Promise((resolve) => setTimeout(resolve, 120000));
 
       const buyer = await client.users.fetch(ticketData.buyer);
       const seller = await client.users.fetch(ticketData.seller);
@@ -1281,6 +1376,16 @@ async function handleAddressConfirmation(interaction, client) {
         content: `${buyer} ${seller}`,
         embeds: [completedEmbed],
       });
+
+      // ✅ NOW mark as completed AFTER showing the embed
+      ticketData.status = "completed";
+
+      await scheduleChannelDeletion(
+        interaction.channel,
+        ticketData,
+        client,
+        30
+      );
 
       // Log commission earned
       console.log("💼 COMMISSION EARNED:");
