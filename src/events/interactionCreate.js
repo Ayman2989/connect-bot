@@ -22,7 +22,9 @@ import { logTransaction } from "../utils/logger.js";
 export const name = "interactionCreate";
 export const once = false;
 
-const TICKET_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
+const TICKET_TIMEOUT = 30 * 60 * 1000;
+const COMPLETED_DEALS_CHANNEL_ID = "1432788671999905873"; // ✅ Replace with your channel ID
+
 const MIN_CONFIRMATIONS = {
   BTC: 3,
   ETH: 12,
@@ -38,18 +40,65 @@ function getNetworkForCoin(coinSymbol) {
     ETH: "ETH",
     LTC: "LTC",
     SOL: "SOL",
-    USDT: "ETH", // ERC20 uses Ethereum network
-    USDC: "ETH", // ERC20 uses Ethereum network
+    USDT: "ETH",
+    USDC: "ETH",
   };
   return networks[coinSymbol];
 }
 
-// ========================================
-// HELPER FUNCTIONS
-// ========================================
+// ✅ POST COMPLETED DEAL TO PUBLIC CHANNEL
+async function postCompletedDeal(guild, ticketData, txHash) {
+  try {
+    const completedChannel = guild.channels.cache.get(
+      COMPLETED_DEALS_CHANNEL_ID
+    );
+
+    if (!completedChannel) {
+      console.error(
+        `❌ Channel with ID "${COMPLETED_DEALS_CHANNEL_ID}" not found! Completed deal not posted.`
+      );
+      return;
+    }
+
+    const buyer = await guild.client.users.fetch(ticketData.buyer);
+    const seller = await guild.client.users.fetch(ticketData.seller);
+
+    const dealEmbed = new EmbedBuilder()
+      .setTitle("✅ Escrow Deal Completed")
+      .setDescription(
+        `**Cryptocurrency:** ${ticketData.coin}\n\n` +
+          `**Deal Amount:** $${ticketData.amount.toFixed(2)} USD\n` +
+          `**Service Fee:** $${ticketData.commissionAmount.toFixed(
+            2
+          )} USD\n\n` +
+          `**Buyer Paid:** ${ticketData.cryptoAmount.toFixed(8)} ${
+            ticketData.coin
+          } ($${ticketData.buyerPaysAmount.toFixed(2)})\n` +
+          `**Seller Received:** ${ticketData.sellerCryptoAmount.toFixed(8)} ${
+            ticketData.coin
+          } ($${ticketData.sellerReceivesAmount.toFixed(2)})\n\n` +
+          `**Buyer:** ${buyer.tag}\n` +
+          `**Seller:** ${seller.tag}\n\n` +
+          `**Transaction Hash:** \`${txHash}\`\n` +
+          `**Track on Explorer:** ${getBlockExplorerLink(
+            ticketData.coin,
+            txHash
+          )}`
+      )
+      .setColor("#00FF00")
+      .setTimestamp()
+      .setFooter({ text: `Ticket ID: ${ticketData.channelId}` });
+
+    await completedChannel.send({ embeds: [dealEmbed] });
+    console.log(
+      `✅ Completed deal posted to channel ID: ${COMPLETED_DEALS_CHANNEL_ID}`
+    );
+  } catch (error) {
+    console.error("Error posting completed deal:", error);
+  }
+}
 
 function startTicketTimeout(channel, ticketData, client) {
-  // Clear existing timeout if any
   if (ticketData.timeoutTimer) {
     clearTimeout(ticketData.timeoutTimer);
   }
@@ -66,7 +115,6 @@ function startTicketTimeout(channel, ticketData, client) {
   }, timeRemaining);
 }
 
-// ✅ NEW FUNCTION: Schedule channel deletion after deal completion
 async function scheduleChannelDeletion(
   channel,
   ticketData,
@@ -76,7 +124,7 @@ async function scheduleChannelDeletion(
   const buyer = await client.users.fetch(ticketData.buyer);
   const seller = await client.users.fetch(ticketData.seller);
 
-  const deleteTime = delayMinutes * 60 * 1000; // Convert to milliseconds
+  const deleteTime = delayMinutes * 60 * 1000;
 
   const notificationEmbed = new EmbedBuilder()
     .setTitle("✅ Deal Completed Successfully")
@@ -91,7 +139,6 @@ async function scheduleChannelDeletion(
     embeds: [notificationEmbed],
   });
 
-  // Schedule deletion warning (1 minute before actual deletion)
   setTimeout(async () => {
     try {
       const finalWarning = new EmbedBuilder()
@@ -101,7 +148,6 @@ async function scheduleChannelDeletion(
 
       await channel.send({ embeds: [finalWarning] });
 
-      // Final deletion after 1 minute warning
       setTimeout(async () => {
         try {
           await channel.delete(
@@ -113,11 +159,11 @@ async function scheduleChannelDeletion(
         } catch (error) {
           console.error("Error deleting channel:", error);
         }
-      }, 60000); // 1 minute warning
+      }, 60000);
     } catch (error) {
       console.error("Error sending deletion warning:", error);
     }
-  }, deleteTime - 60000); // Schedule warning 1 minute before deletion
+  }, deleteTime - 60000);
 }
 
 async function handleTicketTimeout(channel, ticketData, client) {
@@ -125,7 +171,6 @@ async function handleTicketTimeout(channel, ticketData, client) {
   const seller = await client.users.fetch(ticketData.seller);
 
   if (ticketData.paymentReceived && !ticketData.status.includes("completed")) {
-    // Payment received but deal not completed - REFUND BUYER
     const timeoutEmbed = new EmbedBuilder()
       .setTitle("⏰ Ticket Timeout - Refunding Buyer")
       .setDescription(
@@ -140,7 +185,6 @@ async function handleTicketTimeout(channel, ticketData, client) {
     });
 
     try {
-      // Request buyer's refund address
       await channel.send({
         content: `${buyer}, please provide your **${ticketData.coin} wallet address** to receive your refund.`,
       });
@@ -148,7 +192,7 @@ async function handleTicketTimeout(channel, ticketData, client) {
       const refundCollector = channel.createMessageCollector({
         filter: (m) => m.author.id === ticketData.buyer,
         max: 1,
-        time: 600000, // 10 minutes to provide address
+        time: 600000,
       });
 
       refundCollector.on("collect", async (message) => {
@@ -163,7 +207,6 @@ async function handleTicketTimeout(channel, ticketData, client) {
         }
 
         try {
-          // Calculate refund WITHOUT commission (you keep the $1 fee)
           const commissionCrypto = ticketData.sellerCryptoAmount
             ? ticketData.cryptoAmount - ticketData.sellerCryptoAmount
             : 0;
@@ -175,7 +218,7 @@ async function handleTicketTimeout(channel, ticketData, client) {
             ticketData.coin,
             refundAmount,
             buyerAddress,
-            getNetworkForCoin(ticketData.coin) // ✅ ADDED THIS LINE
+            getNetworkForCoin(ticketData.coin)
           );
 
           const refundSuccessEmbed = new EmbedBuilder()
@@ -197,7 +240,6 @@ async function handleTicketTimeout(channel, ticketData, client) {
           await channel.send({ embeds: [refundSuccessEmbed] });
           ticketData.status = "refunded";
 
-          // Log commission earned
           if (commissionCrypto > 0) {
             console.log("💼 COMMISSION EARNED FROM TIMEOUT:");
             console.log(
@@ -212,7 +254,7 @@ async function handleTicketTimeout(channel, ticketData, client) {
             );
             console.log(`   Ticket ID: ${channel.id}`);
           }
-          // ✅ DELETE CHANNEL AFTER 1 MINUTE
+
           setTimeout(async () => {
             try {
               await channel.delete("Ticket timeout - refund processed");
@@ -230,7 +272,7 @@ async function handleTicketTimeout(channel, ticketData, client) {
           console.error("CRITICAL: Refund failed:", error);
         }
       });
-      // ✅ DELETE CHANNEL IF NO REFUND ADDRESS PROVIDED
+
       refundCollector.on("end", async (collected) => {
         if (collected.size === 0) {
           await channel.send({
@@ -253,7 +295,6 @@ async function handleTicketTimeout(channel, ticketData, client) {
       console.error("Error processing timeout refund:", error);
     }
   } else {
-    // ✅ No payment received - DELETE AFTER 1 MINUTE
     const timeoutEmbed = new EmbedBuilder()
       .setTitle("⏰ Ticket Timeout")
       .setDescription(
@@ -265,7 +306,6 @@ async function handleTicketTimeout(channel, ticketData, client) {
     await channel.send({ embeds: [timeoutEmbed] });
     ticketData.status = "timeout";
 
-    // ✅ DELETE AFTER 1 MINUTE
     setTimeout(async () => {
       try {
         await channel.delete("Ticket timeout - no payment received");
@@ -314,15 +354,13 @@ function getBlockExplorerLink(coinSymbol, txId, address = null) {
 }
 
 async function startPaymentMonitoring(channel, ticketData, client) {
-  const checkInterval = 60000; // Check every 1 minute
+  const checkInterval = 60000;
   const timeoutAt = ticketData.createdAt + TICKET_TIMEOUT;
 
-  // ✅ TRACK IF WE ALREADY NOTIFIED
   let hasNotifiedPaymentDetected = false;
-  let paymentDetectedTime = null; // ✅ Track when payment first detected
+  let paymentDetectedTime = null;
 
   const paymentChecker = setInterval(async () => {
-    // ✅ CHECK IF CHANNEL STILL EXISTS
     let activeChannel;
     try {
       activeChannel = await client.channels.fetch(channel.id);
@@ -335,7 +373,6 @@ async function startPaymentMonitoring(channel, ticketData, client) {
       return;
     }
 
-    // CHECK TIMEOUT
     if (Date.now() >= timeoutAt) {
       clearInterval(paymentChecker);
       await activeChannel
@@ -346,7 +383,6 @@ async function startPaymentMonitoring(channel, ticketData, client) {
       return;
     }
 
-    // CHECK STATUS
     if (["timeout", "refunded", "completed"].includes(ticketData.status)) {
       clearInterval(paymentChecker);
       return;
@@ -361,22 +397,21 @@ async function startPaymentMonitoring(channel, ticketData, client) {
 
       const minConf = MIN_CONFIRMATIONS[ticketData.coin] || 6;
 
-      // ✅ If payment detected for FIRST TIME, record timestamp
       if (paymentStatus.received && !paymentDetectedTime) {
         paymentDetectedTime = Date.now();
       }
 
-      // ✅ Check if 5 minutes passed since detection
-      const fiveMinutesPassed =
+      const threeMinutesPassed =
         paymentDetectedTime &&
         Date.now() - paymentDetectedTime >= 3 * 60 * 1000;
 
-      // ✅ SHOW CONFIRMATION AFTER 5 MINUTES
-      if (paymentStatus.received && fiveMinutesPassed) {
-        // ✅ STOP CHECKING - Payment confirmed!
+      if (paymentStatus.received && threeMinutesPassed) {
         clearInterval(paymentChecker);
         ticketData.paymentReceived = true;
         ticketData.status = "awaiting_goods_delivery";
+
+        // ✅ STORE TRANSACTION HASH
+        ticketData.depositTxHash = paymentStatus.txId;
 
         logTransaction("deposit_confirmed", {
           ticketId: channel.id,
@@ -397,7 +432,14 @@ async function startPaymentMonitoring(channel, ticketData, client) {
           paymentStatus.txId
         );
 
-        // ✅ EMBED 1: Payment Confirmed
+        if (ticketData.paymentDetectionMessage) {
+          try {
+            await ticketData.paymentDetectionMessage.delete();
+          } catch (error) {
+            console.error("Couldn't delete payment detection message:", error);
+          }
+        }
+
         const paymentConfirmedEmbed = new EmbedBuilder()
           .setTitle("✅ Payment Confirmed!")
           .setDescription(
@@ -417,7 +459,6 @@ async function startPaymentMonitoring(channel, ticketData, client) {
           embeds: [paymentConfirmedEmbed],
         });
 
-        // ✅ EMBED 2: Delivery Button
         const deliveryEmbed = new EmbedBuilder()
           .setTitle("📦 Goods/Service Delivery")
           .setDescription(
@@ -434,30 +475,31 @@ async function startPaymentMonitoring(channel, ticketData, client) {
           confirmDeliveryBtn
         );
 
-        await activeChannel.send({
+        const deliveryMessage = await activeChannel.send({
           content: `${seller}`,
           embeds: [deliveryEmbed],
           components: [deliveryRow],
         });
+
+        ticketData.deliveryMessage = deliveryMessage;
       } else if (paymentStatus.received && !hasNotifiedPaymentDetected) {
-        // ✅ FIRST TIME DETECTION - Show message ONCE
         const txLink = getBlockExplorerLink(
           ticketData.coin,
           paymentStatus.txId
         );
 
-        await activeChannel
+        const detectionMessage = await activeChannel
           .send({
             content:
               `<a:loading:1432441197527302246> **Payment detected!** Waiting for confirmations: ${paymentStatus.confirmations}/${minConf}\n\n` +
               `📍 **Track your transaction:** ${txLink}\n` +
-              `⏱️ Payment will be confirmed in ~5 minutes.`,
+              `⏱️ Payment will be confirmed in ~3 minutes.`,
           })
           .catch((err) => console.error(err.message));
 
+        ticketData.paymentDetectionMessage = detectionMessage;
         hasNotifiedPaymentDetected = true;
       }
-      // ✅ REMOVED: No more confirmation updates!
     } catch (error) {
       console.error("Error checking payment:", error.message);
 
@@ -495,7 +537,6 @@ async function handleCommissionSelection(interaction, client) {
     return;
   }
 
-  // Check if user is part of this ticket
   if (userId !== ticketData.buyer && userId !== ticketData.seller) {
     await interaction.reply({
       content: "❌ You are not part of this ticket.",
@@ -504,7 +545,6 @@ async function handleCommissionSelection(interaction, client) {
     return;
   }
 
-  // ✅ CHECK IF THIS USER ALREADY VOTED
   const isBuyer = userId === ticketData.buyer;
   const isSeller = userId === ticketData.seller;
 
@@ -524,7 +564,6 @@ async function handleCommissionSelection(interaction, client) {
     return;
   }
 
-  // Determine which option they voted for
   let vote;
   if (customId.includes("_buyer_")) {
     vote = "buyer_pays";
@@ -534,7 +573,6 @@ async function handleCommissionSelection(interaction, client) {
     vote = "split";
   }
 
-  // Record their vote
   if (isBuyer) {
     ticketData.commissionVotes.buyer = vote;
   } else {
@@ -546,27 +584,22 @@ async function handleCommissionSelection(interaction, client) {
     ephemeral: true,
   });
 
-  // ✅ CHECK IF BOTH HAVE VOTED *AND* NOT ALREADY PROCESSING
   if (
     ticketData.commissionVotes.buyer &&
     ticketData.commissionVotes.seller &&
     !ticketData.processingCommission
   ) {
-    // ✅ SET LOCK IMMEDIATELY - FIRST ONE HERE WINS
     ticketData.processingCommission = true;
 
     const buyer = await client.users.fetch(ticketData.buyer);
     const seller = await client.users.fetch(ticketData.seller);
 
-    // Check if they agree
     if (
       ticketData.commissionVotes.buyer === ticketData.commissionVotes.seller
     ) {
-      // AGREEMENT REACHED!
       const agreedOption = ticketData.commissionVotes.buyer;
       ticketData.commissionPayer = agreedOption;
 
-      // Calculate final amounts
       let buyerPaysAmount;
       let sellerReceivesAmount;
       const commission = ticketData.commissionAmount;
@@ -589,6 +622,14 @@ async function handleCommissionSelection(interaction, client) {
       ticketData.buyerPaysAmount = buyerPaysAmount;
       ticketData.sellerReceivesAmount = sellerReceivesAmount;
 
+      if (ticketData.commissionMessage) {
+        try {
+          await ticketData.commissionMessage.delete();
+        } catch (error) {
+          console.error("Couldn't delete commission message:", error);
+        }
+      }
+
       const agreementEmbed = new EmbedBuilder()
         .setTitle("✅ Commission Agreement Reached!")
         .setDescription(
@@ -609,17 +650,15 @@ async function handleCommissionSelection(interaction, client) {
         embeds: [agreementEmbed],
       });
 
-      // Now proceed with crypto conversion and deposit address
       try {
         const conversion = await convertUSDToCrypto(
           ticketData.coin,
-          buyerPaysAmount // Buyer pays this amount
+          buyerPaysAmount
         );
 
         ticketData.cryptoAmount = conversion.cryptoAmount;
         ticketData.pricePerCoin = conversion.price;
 
-        // Calculate seller's crypto amount (for reference)
         const sellerCryptoConversion = await convertUSDToCrypto(
           ticketData.coin,
           sellerReceivesAmount
@@ -659,7 +698,7 @@ async function handleCommissionSelection(interaction, client) {
             `${buyer}, send **exactly** \`${conversion.cryptoAmount.toFixed(
               8
             )}\` ${ticketData.coin} to:\n\n` +
-              `\`${depositInfo.address}\`\n\n` + // 👈 Tap-to-copy on mobile
+              `\`${depositInfo.address}\`\n\n` +
               `⚠️ **CRITICAL INSTRUCTIONS:**\n` +
               `• Send ONLY ${ticketData.coin} to this address\n` +
               `• Send the EXACT amount shown above\n` +
@@ -706,8 +745,15 @@ async function handleCommissionSelection(interaction, client) {
         console.error(error);
       }
     } else {
-      // DISAGREEMENT!
-      ticketData.processingCommission = false; // ✅ UNLOCK for re-voting
+      ticketData.processingCommission = false;
+
+      if (ticketData.commissionMessage) {
+        try {
+          await ticketData.commissionMessage.delete();
+        } catch (error) {
+          console.error("Couldn't delete commission message:", error);
+        }
+      }
 
       const disagreementEmbed = new EmbedBuilder()
         .setTitle("❌ No Agreement on Commission")
@@ -723,7 +769,6 @@ async function handleCommissionSelection(interaction, client) {
         )
         .setColor("#FF0000");
 
-      // Reset votes
       ticketData.commissionVotes = {
         buyer: null,
         seller: null,
@@ -750,10 +795,12 @@ async function handleCommissionSelection(interaction, client) {
         splitBtn
       );
 
-      await interaction.channel.send({
+      const newCommissionMessage = await interaction.channel.send({
         embeds: [disagreementEmbed],
         components: [commissionRow],
       });
+
+      ticketData.commissionMessage = newCommissionMessage;
     }
   }
 }
@@ -806,7 +853,6 @@ async function handleRoleSelection(interaction, client) {
     return;
   }
 
-  // ✅ ASSIGN ROLE
   if (role === "buyer") {
     ticketData.buyer = userId;
   } else {
@@ -818,14 +864,18 @@ async function handleRoleSelection(interaction, client) {
     ephemeral: true,
   });
 
-  // ✅ CHECK IF BOTH ROLES ARE FILLED *AND* NOT ALREADY PROCESSING
   if (
     ticketData.buyer &&
     ticketData.seller &&
     !ticketData.processingRoleSelection
   ) {
-    // ✅ SET LOCK IMMEDIATELY - FIRST ONE HERE WINS
     ticketData.processingRoleSelection = true;
+
+    try {
+      await interaction.message.delete();
+    } catch (error) {
+      console.error("Couldn't delete role selection message:", error);
+    }
 
     const buyer = await client.users.fetch(ticketData.buyer);
     const seller = await client.users.fetch(ticketData.seller);
@@ -874,7 +924,7 @@ async function handleRoleSelection(interaction, client) {
       const approvalEmbed = new EmbedBuilder()
         .setTitle("💵 Amount Confirmation")
         .setDescription(
-          `${buyer} wants to pay **$${amount.toFixed(2)} USD**\n\n` +
+          `${buyer} wants to pay **${amount.toFixed(2)} USD**\n\n` +
             `${seller}, do you agree with this amount?`
         )
         .setColor("#FFA500");
@@ -894,11 +944,13 @@ async function handleRoleSelection(interaction, client) {
         rejectButton
       );
 
-      await interaction.channel.send({
+      const approvalMessage = await interaction.channel.send({
         content: `${seller}`,
         embeds: [approvalEmbed],
         components: [approvalRow],
       });
+
+      ticketData.approvalMessage = approvalMessage;
     });
   }
 }
@@ -929,53 +981,56 @@ async function handleSellerApproval(interaction, client) {
   const seller = await client.users.fetch(ticketData.seller);
 
   if (customId.startsWith("approve_")) {
-    // Amount approved - now ask about commission
     ticketData.status = "awaiting_commission_agreement";
 
-    // Calculate base commission
     let commissionAmount = 0;
     const amount = ticketData.amount;
 
     if (amount < 10) {
-      commissionAmount = 0; // No commission for deals under $10
+      commissionAmount = 0;
     } else if (amount < 50) {
-      commissionAmount = 1.0; // $1 for deals $10-$49.99
+      commissionAmount = 1.0;
     } else if (amount < 300) {
-      commissionAmount = 2.0; // $2 for deals $50-$299.99
+      commissionAmount = 2.0;
     } else {
-      commissionAmount = amount * 0.01; // 1% for deals $300+
+      commissionAmount = amount * 0.01;
     }
 
-    // Add $1 extra for USDT/USDC (unless it's a no-commission deal)
     if (ticketData.coin === "USDT" || ticketData.coin === "USDC") {
       commissionAmount += 1.0;
     }
     ticketData.commissionAmount = commissionAmount;
 
+    try {
+      await interaction.message.delete();
+    } catch (error) {
+      console.error("Couldn't delete approval message:", error);
+    }
+
     const commissionEmbed = new EmbedBuilder()
       .setTitle("💵 Commission Payment")
       .setDescription(
-        `**Deal Amount:** $${ticketData.amount.toFixed(2)}\n` +
-          `**Service Fee:** $${commissionAmount.toFixed(2)}\n\n` +
-          `Who will pay the $${commissionAmount.toFixed(
+        `**Deal Amount:** ${ticketData.amount.toFixed(2)}\n` +
+          `**Service Fee:** ${commissionAmount.toFixed(2)}\n\n` +
+          `Who will pay the ${commissionAmount.toFixed(
             2
           )} escrow service fee?\n\n` +
           `**Option 1: Buyer Pays All** 💰\n` +
-          `• ${buyer} sends **$${(ticketData.amount + commissionAmount).toFixed(
+          `• ${buyer} sends **${(ticketData.amount + commissionAmount).toFixed(
             2
           )}**\n` +
-          `• ${seller} receives **$${ticketData.amount.toFixed(2)}**\n\n` +
+          `• ${seller} receives **${ticketData.amount.toFixed(2)}**\n\n` +
           `**Option 2: Seller Pays All** 📦\n` +
-          `• ${buyer} sends **$${ticketData.amount.toFixed(2)}**\n` +
-          `• ${seller} receives **$${(
+          `• ${buyer} sends **${ticketData.amount.toFixed(2)}**\n` +
+          `• ${seller} receives **${(
             ticketData.amount - commissionAmount
           ).toFixed(2)}**\n\n` +
           `**Option 3: Split 50/50** 🤝\n` +
-          `• ${buyer} sends **$${(
+          `• ${buyer} sends **${(
             ticketData.amount +
             commissionAmount / 2
           ).toFixed(2)}**\n` +
-          `• ${seller} receives **$${(
+          `• ${seller} receives **${(
             ticketData.amount -
             commissionAmount / 2
           ).toFixed(2)}**\n\n` +
@@ -1004,19 +1059,13 @@ async function handleSellerApproval(interaction, client) {
       splitBtn
     );
 
-    // ✅ Remove buttons from old message
-    await interaction.update({
-      embeds: [interaction.message.embeds[0]],
-      components: [],
-    });
-
-    // ✅ Send fresh message with 3 buttons
-    await interaction.channel.send({
+    const commissionMessage = await interaction.channel.send({
       embeds: [commissionEmbed],
       components: [commissionRow],
     });
 
-    // Initialize commission votes
+    ticketData.commissionMessage = commissionMessage;
+
     ticketData.commissionVotes = {
       buyer: null,
       seller: null,
@@ -1025,12 +1074,30 @@ async function handleSellerApproval(interaction, client) {
     const rejectEmbed = new EmbedBuilder()
       .setTitle("❌ Amount Rejected")
       .setDescription(
-        `${seller} rejected $${ticketData.amount.toFixed(2)} USD.\n\n` +
+        `${seller} rejected ${ticketData.amount.toFixed(2)} USD.\n\n` +
           `${buyer}, please enter a new amount.`
       )
       .setColor("#FF0000");
 
-    //
+    try {
+      await interaction.message.delete();
+    } catch (error) {
+      console.error("Couldn't delete approval message:", error);
+    }
+
+    await interaction.channel.send({
+      embeds: [rejectEmbed],
+    });
+
+    ticketData.amount = null;
+
+    await interaction.channel.permissionOverwrites.edit(ticketData.buyer, {
+      SendMessages: true,
+    });
+
+    await interaction.channel.permissionOverwrites.edit(ticketData.seller, {
+      SendMessages: false,
+    });
 
     const amountCollector = interaction.channel.createMessageCollector({
       filter: (m) => m.author.id === ticketData.buyer,
@@ -1059,7 +1126,7 @@ async function handleSellerApproval(interaction, client) {
       const approvalEmbed = new EmbedBuilder()
         .setTitle("💵 Amount Confirmation")
         .setDescription(
-          `${buyer} wants to pay **$${amount.toFixed(2)} USD**\n\n` +
+          `${buyer} wants to pay **${amount.toFixed(2)} USD**\n\n` +
             `${seller}, do you agree with this amount?`
         )
         .setColor("#FFA500");
@@ -1079,27 +1146,13 @@ async function handleSellerApproval(interaction, client) {
         rejectButton
       );
 
-      await interaction.channel.send({
+      const approvalMessage = await interaction.channel.send({
         content: `${seller}`,
         embeds: [approvalEmbed],
         components: [approvalRow],
       });
-    });
 
-    // ✅ FIXED: Use correct variables
-    await interaction.update({
-      embeds: [rejectEmbed],
-      components: [],
-    });
-
-    ticketData.amount = null;
-
-    await interaction.channel.permissionOverwrites.edit(ticketData.buyer, {
-      SendMessages: true,
-    });
-
-    await interaction.channel.permissionOverwrites.edit(ticketData.seller, {
-      SendMessages: false,
+      ticketData.approvalMessage = approvalMessage;
     });
   }
 }
@@ -1129,6 +1182,12 @@ async function handleDeliveryConfirmation(interaction, client) {
 
   ticketData.status = "awaiting_buyer_confirmation";
 
+  try {
+    await interaction.message.delete();
+  } catch (error) {
+    console.error("Couldn't delete delivery message:", error);
+  }
+
   const deliveryConfirmedEmbed = new EmbedBuilder()
     .setTitle("📦 Seller Confirmed Delivery")
     .setDescription(
@@ -1152,20 +1211,12 @@ async function handleDeliveryConfirmation(interaction, client) {
     notReceivedButton
   );
 
-  // ✅ FIX: Try both methods
-  try {
-    await interaction.create.send({
-      embeds: [deliveryConfirmedEmbed],
-      components: [confirmRow],
-    });
-  } catch (error) {
-    // ✅ Fallback: If update fails, reply with new message
-    console.log("Update failed, sending new message:", error.message);
-    await interaction.reply({
-      embeds: [deliveryConfirmedEmbed],
-      components: [confirmRow],
-    });
-  }
+  const confirmMessage = await interaction.channel.send({
+    embeds: [deliveryConfirmedEmbed],
+    components: [confirmRow],
+  });
+
+  ticketData.buyerConfirmMessage = confirmMessage;
 }
 
 async function handleBuyerConfirmation(interaction, client) {
@@ -1193,8 +1244,13 @@ async function handleBuyerConfirmation(interaction, client) {
   const seller = await client.users.fetch(ticketData.seller);
 
   if (customId.startsWith("goods_received_")) {
-    // Buyer confirms receipt - proceed to get seller address
     ticketData.status = "awaiting_seller_address";
+
+    try {
+      await interaction.message.delete();
+    } catch (error) {
+      console.error("Couldn't delete buyer confirmation message:", error);
+    }
 
     const proceedEmbed = new EmbedBuilder()
       .setTitle("✅ Buyer Confirmed Receipt!")
@@ -1204,9 +1260,8 @@ async function handleBuyerConfirmation(interaction, client) {
       )
       .setColor("#00FF00");
 
-    await interaction.update({
+    await interaction.channel.send({
       embeds: [proceedEmbed],
-      components: [],
     });
 
     const addressCollector = interaction.channel.createMessageCollector({
@@ -1261,15 +1316,22 @@ async function handleBuyerConfirmation(interaction, client) {
         cancelButton
       );
 
-      await interaction.channel.send({
+      const addressConfirmMessage = await interaction.channel.send({
         content: `${seller}`,
         embeds: [confirmationEmbed],
         components: [confirmRow],
       });
+
+      ticketData.addressConfirmMessage = addressConfirmMessage;
     });
   } else if (customId.startsWith("goods_not_received_")) {
-    // Buyer says they didn't receive - open dispute
     ticketData.status = "disputed";
+
+    try {
+      await interaction.message.delete();
+    } catch (error) {
+      console.error("Couldn't delete buyer confirmation message:", error);
+    }
 
     const disputeEmbed = new EmbedBuilder()
       .setTitle("⚠️ Dispute Opened")
@@ -1280,9 +1342,8 @@ async function handleBuyerConfirmation(interaction, client) {
       )
       .setColor("#FFA500");
 
-    await interaction.update({
+    await interaction.channel.send({
       embeds: [disputeEmbed],
-      components: [],
     });
   }
 }
@@ -1309,16 +1370,18 @@ async function handleAddressConfirmation(interaction, client) {
   }
 
   if (customId.startsWith("confirm_address_")) {
-    // Final confirmation - send crypto to seller
     try {
-      await interaction.update({
+      try {
+        await interaction.message.delete();
+      } catch (error) {
+        console.error("Couldn't delete address confirmation message:", error);
+      }
+
+      await interaction.channel.send({
         content:
           "⏳ Processing payment to seller... Please wait (this may take 1-2 minutes).",
-        embeds: [],
-        components: [],
       });
 
-      // Clear timeout since we're completing the deal
       if (ticketData.timeoutTimer) {
         clearTimeout(ticketData.timeoutTimer);
       }
@@ -1327,7 +1390,7 @@ async function handleAddressConfirmation(interaction, client) {
         ticketData.coin,
         ticketData.sellerCryptoAmount,
         ticketData.sellerAddress,
-        getNetworkForCoin(ticketData.coin) // ✅ ADDED THIS LINE
+        getNetworkForCoin(ticketData.coin)
       );
 
       await new Promise((resolve) => setTimeout(resolve, 120000));
@@ -1335,9 +1398,11 @@ async function handleAddressConfirmation(interaction, client) {
       const buyer = await client.users.fetch(ticketData.buyer);
       const seller = await client.users.fetch(ticketData.seller);
 
-      // Calculate commission for display
       const commissionCrypto =
         ticketData.cryptoAmount - ticketData.sellerCryptoAmount;
+
+      // ✅ STORE WITHDRAWAL TX HASH
+      const withdrawalTxHash = withdrawal.txId || withdrawal.withdrawId;
 
       const completedEmbed = new EmbedBuilder()
         .setTitle("🎉 Escrow Deal Completed!")
@@ -1348,12 +1413,12 @@ async function handleAddressConfirmation(interaction, client) {
             }** (${ticketData.buyerPaysAmount.toFixed(2)})\n` +
             `📦 Seller Received: **${ticketData.sellerCryptoAmount.toFixed(
               8
-            )} ${ticketData.coin}** ($${ticketData.sellerReceivesAmount.toFixed(
+            )} ${ticketData.coin}** (${ticketData.sellerReceivesAmount.toFixed(
               2
             )})\n` +
             `💼 Service Fee: **${commissionCrypto.toFixed(8)} ${
               ticketData.coin
-            }** ($${ticketData.commissionAmount.toFixed(2)})\n\n` +
+            }** (${ticketData.commissionAmount.toFixed(2)})\n\n` +
             `📍 Seller Address: \`${ticketData.sellerAddress}\`\n` +
             `🔗 Withdrawal ID: \`${withdrawal.withdrawId}\`\n` +
             `${
@@ -1377,8 +1442,10 @@ async function handleAddressConfirmation(interaction, client) {
         embeds: [completedEmbed],
       });
 
-      // ✅ NOW mark as completed AFTER showing the embed
       ticketData.status = "completed";
+
+      // ✅ POST TO COMPLETED DEALS CHANNEL
+      await postCompletedDeal(interaction.guild, ticketData, withdrawalTxHash);
 
       await scheduleChannelDeletion(
         interaction.channel,
@@ -1387,7 +1454,6 @@ async function handleAddressConfirmation(interaction, client) {
         30
       );
 
-      // Log commission earned
       console.log("💼 COMMISSION EARNED:");
       console.log(
         `   Amount: ${commissionCrypto.toFixed(8)} ${ticketData.coin}`
@@ -1398,7 +1464,6 @@ async function handleAddressConfirmation(interaction, client) {
       console.log(`   Buyer: ${ticketData.buyer}`);
       console.log(`   Seller: ${ticketData.seller}`);
 
-      // Optional: Archive or close the ticket after some time
       setTimeout(async () => {
         const archiveEmbed = new EmbedBuilder()
           .setTitle("📁 Ticket Archived")
@@ -1409,10 +1474,7 @@ async function handleAddressConfirmation(interaction, client) {
           .setColor("#808080");
 
         await interaction.channel.send({ embeds: [archiveEmbed] });
-
-        // Optionally delete the channel after 24 hours
-        // await interaction.channel.delete();
-      }, 3600000); // 1 hour
+      }, 3600000);
     } catch (error) {
       console.error("CRITICAL ERROR - Payment to seller failed:", error);
 
@@ -1436,7 +1498,6 @@ async function handleAddressConfirmation(interaction, client) {
         embeds: [errorEmbed],
       });
 
-      // Log to your monitoring system
       console.error("=".repeat(60));
       console.error("CRITICAL PAYMENT FAILURE");
       console.error("Ticket ID:", channelId);
@@ -1449,11 +1510,14 @@ async function handleAddressConfirmation(interaction, client) {
       console.error("=".repeat(60));
     }
   } else if (customId.startsWith("cancel_address_")) {
-    // Seller wants to re-enter address
-    await interaction.update({
+    try {
+      await interaction.message.delete();
+    } catch (error) {
+      console.error("Couldn't delete address confirmation message:", error);
+    }
+
+    await interaction.channel.send({
       content: `Please send your **${ticketData.coin} wallet address** again:`,
-      embeds: [],
-      components: [],
     });
 
     ticketData.sellerAddress = null;
@@ -1511,11 +1575,95 @@ async function handleAddressConfirmation(interaction, client) {
         cancelButton
       );
 
-      await interaction.channel.send({
+      const addressConfirmMessage = await interaction.channel.send({
         content: `${seller}`,
         embeds: [confirmationEmbed],
         components: [confirmRow],
       });
+
+      ticketData.addressConfirmMessage = addressConfirmMessage;
+    });
+  }
+}
+
+// ✅ HANDLE CLOSE BUTTON
+async function handleCloseTicket(interaction, client) {
+  const channelId = interaction.channel.id;
+  const ticketData = client.ticketData.get(channelId);
+
+  if (!ticketData) {
+    await interaction.reply({
+      content: "❌ Ticket data not found.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const userId = interaction.user.id;
+
+  if (userId !== ticketData.user1) {
+    await interaction.reply({
+      content: "❌ Only the ticket creator can close this ticket.",
+      ephemeral: true,
+    });
+    return;
+  }
+
+  const confirmEmbed = new EmbedBuilder()
+    .setTitle("⚠️ Close Ticket?")
+    .setDescription(
+      `Are you sure you want to close this ticket?\n\n` +
+        `**This action cannot be undone.**`
+    )
+    .setColor("#FFA500");
+
+  const confirmBtn = new ButtonBuilder()
+    .setCustomId(`confirm_close_${channelId}`)
+    .setLabel("✅ Yes, Close Ticket")
+    .setStyle(ButtonStyle.Danger);
+
+  const cancelBtn = new ButtonBuilder()
+    .setCustomId(`cancel_close_${channelId}`)
+    .setLabel("❌ Cancel")
+    .setStyle(ButtonStyle.Secondary);
+
+  const row = new ActionRowBuilder().addComponents(confirmBtn, cancelBtn);
+
+  await interaction.reply({
+    embeds: [confirmEmbed],
+    components: [row],
+    ephemeral: true,
+  });
+}
+
+async function handleCloseConfirmation(interaction, client) {
+  const customId = interaction.customId;
+  const channelId = interaction.channel.id;
+
+  if (customId.startsWith("confirm_close_")) {
+    await interaction.update({
+      content: "🗑️ Closing ticket...",
+      embeds: [],
+      components: [],
+    });
+
+    setTimeout(async () => {
+      try {
+        await interaction.channel.delete("Ticket closed by user");
+        console.log(`🗑️ Ticket ${channelId} closed by user`);
+
+        if (client.ticketData && client.ticketData.has(channelId)) {
+          client.ticketData.delete(channelId);
+        }
+      } catch (error) {
+        console.error("Error deleting channel:", error);
+      }
+    }, 2000);
+  } else if (customId.startsWith("cancel_close_")) {
+    await interaction.update({
+      content: "✅ Ticket closure cancelled.",
+      embeds: [],
+      components: [],
     });
   }
 }
@@ -1525,7 +1673,6 @@ async function handleAddressConfirmation(interaction, client) {
 // ========================================
 
 export async function execute(interaction, client) {
-  // Handle slash commands
   if (interaction.isChatInputCommand()) {
     const command = client.commands.get(interaction.commandName);
     if (!command) return;
@@ -1540,31 +1687,25 @@ export async function execute(interaction, client) {
     }
   }
 
-  // Handle button interactions
   if (interaction.isButton()) {
     const customId = interaction.customId;
 
-    // Role selection buttons
     if (customId.startsWith("buyer_") || customId.startsWith("seller_")) {
       await handleRoleSelection(interaction, client);
     }
 
-    // Seller approval buttons
     if (customId.startsWith("approve_") || customId.startsWith("reject_")) {
       await handleSellerApproval(interaction, client);
     }
 
-    // Commission selection buttons
     if (customId.startsWith("commission_")) {
       await handleCommissionSelection(interaction, client);
     }
 
-    // Delivery confirmation
     if (customId.startsWith("confirm_delivery_")) {
       await handleDeliveryConfirmation(interaction, client);
     }
 
-    // Buyer confirmation (goods received)
     if (
       customId.startsWith("goods_received_") ||
       customId.startsWith("goods_not_received_")
@@ -1572,16 +1713,26 @@ export async function execute(interaction, client) {
       await handleBuyerConfirmation(interaction, client);
     }
 
-    // Address confirmation
     if (
       customId.startsWith("confirm_address_") ||
       customId.startsWith("cancel_address_")
     ) {
       await handleAddressConfirmation(interaction, client);
     }
+
+    // ✅ CLOSE BUTTON HANDLERS
+    if (customId.startsWith("close_ticket_")) {
+      await handleCloseTicket(interaction, client);
+    }
+
+    if (
+      customId.startsWith("confirm_close_") ||
+      customId.startsWith("cancel_close_")
+    ) {
+      await handleCloseConfirmation(interaction, client);
+    }
   }
 
-  // Handle dropdown (select menu)
   if (interaction.isStringSelectMenu()) {
     if (interaction.customId === "coinSelect") {
       const coin = interaction.values[0];
@@ -1630,9 +1781,18 @@ export async function execute(interaction, client) {
           .setColor("#00A86B")
           .setFooter({ text: "Reply with the User ID below" });
 
+        // ✅ ADD CLOSE BUTTON
+        const closeButton = new ButtonBuilder()
+          .setCustomId(`close_ticket_${ticketChannel.id}`)
+          .setLabel("🗑️ Close Ticket")
+          .setStyle(ButtonStyle.Danger);
+
+        const closeRow = new ActionRowBuilder().addComponents(closeButton);
+
         await ticketChannel.send({
           content: `${user}`,
           embeds: [welcomeEmbed],
+          components: [closeRow],
         });
 
         await interaction.editReply({
@@ -1702,12 +1862,11 @@ export async function execute(interaction, client) {
               sellerButton
             );
 
-            await ticketChannel.send({
+            const roleMessage = await ticketChannel.send({
               embeds: [roleEmbed],
               components: [roleRow],
             });
 
-            // Initialize ticket data
             if (!client.ticketData) {
               client.ticketData = new Map();
             }
@@ -1730,20 +1889,26 @@ export async function execute(interaction, client) {
               status: "awaiting_roles",
               createdAt: Date.now(),
               timeoutTimer: null,
-              // Commission fields
               commissionAmount: null,
-              commissionPayer: null, // 'buyer_pays', 'seller_pays', or 'split'
+              commissionPayer: null,
               commissionVotes: null,
-              buyerPaysAmount: null, // Final amount buyer sends (including commission)
-              sellerReceivesAmount: null, // Final amount seller gets (after commission)
-              sellerCryptoAmount: null, // Crypto amount seller receives
-              processingCommission: false, // Race condition lock
-              processingRoleSelection: false, // ✅ ADD THIS
+              buyerPaysAmount: null,
+              sellerReceivesAmount: null,
+              sellerCryptoAmount: null,
+              processingCommission: false,
+              processingRoleSelection: false,
+              depositTxHash: null, // ✅ STORE DEPOSIT TX
+              roleMessage: roleMessage,
+              approvalMessage: null,
+              commissionMessage: null,
+              paymentDetectionMessage: null,
+              deliveryMessage: null,
+              buyerConfirmMessage: null,
+              addressConfirmMessage: null,
             };
 
             client.ticketData.set(ticketChannel.id, ticketData);
 
-            // Start 30-minute timeout
             startTicketTimeout(ticketChannel, ticketData, client);
           } catch (error) {
             await ticketChannel.send({
