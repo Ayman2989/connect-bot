@@ -505,7 +505,7 @@ export async function sendCryptoToSeller(
     const withdrawal = await binanceClient.withdraw({
       coin: coin,
       address: sellerAddress,
-      amount: roundedAmount, // ✅ Use rounded amount
+      amount: amount,
       network: network,
     });
 

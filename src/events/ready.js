@@ -7,12 +7,14 @@ import {
   StringSelectMenuBuilder,
   EmbedBuilder,
 } from "discord.js";
+import dotenv from "dotenv";
+dotenv.config();
 
 export const name = "ready";
 export const once = true;
 
 // ⚠️ MUST BE A STRING IN QUOTES!
-const CHANNEL_ID = "1428695614346104894";
+const CHANNEL_ID = process.env.START_DEAL_CHANNEL_ID;
 
 console.log(`🔍 CHANNEL_ID defined as: "${CHANNEL_ID}"`);
 console.log(`🔍 CHANNEL_ID type: ${typeof CHANNEL_ID}`);
@@ -79,11 +81,19 @@ export async function execute(client) {
     console.log(`   Type: ${channel.type}`);
 
     const embed = new EmbedBuilder()
-      .setTitle("🤝 Start Your Escrow Deal")
+      .setTitle("Start Your Escrow Deal")
       .setDescription(
-        "Select your preferred cryptocurrency to start the escrow process."
+        "**Cryptocurrency**\n" +
+          "__Fees:__\n" +
+          "• Deals $300+: **1%**\n" +
+          "• Deals under $300: **$2**\n" +
+          "• Deals under $50: **$0.50**\n" +
+          "• Deals under $10 are **FREE**\n" +
+          "• **USDT & USDC** have a **$1 subcharge**\n\n" +
+          "Press the dropdown below to select & initiate a deal involving:\n" +
+          "**Bitcoin, Ethereum, Litecoin, Solana, USDT [ERC-20], USDC [ERC-20].**"
       )
-      .setColor("#00A86B");
+      .setColor("#153ee9");
 
     const select = new StringSelectMenuBuilder()
       .setCustomId("coinSelect")
