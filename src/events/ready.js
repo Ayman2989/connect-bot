@@ -88,7 +88,7 @@ export async function execute(client) {
           "• Deals $300+: **1%**\n" +
           "• Deals under $300: **$2**\n" +
           "• Deals under $50: **$0.50**\n" +
-          "• Deals under $10 are **FREE**\n" +
+          "• Deals under $30 are **FREE**\n" +
           "• **USDT & USDC** have a **$1 subcharge**\n\n" +
           "Press the dropdown below to select & initiate a deal involving:\n" +
           "**Bitcoin, Ethereum, Litecoin, Solana, USDT [ERC-20], USDC [ERC-20].**"

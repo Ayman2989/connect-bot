@@ -1151,7 +1151,7 @@ async function handleSellerApproval(interaction, client) {
     let commissionAmount = 0;
     const amount = ticketData.amount;
 
-    if (amount < 10) {
+    if (amount < 30) {
       commissionAmount = 0.0;
     } else if (amount < 50) {
       commissionAmount = 1.0;
@@ -1179,7 +1179,7 @@ async function handleSellerApproval(interaction, client) {
       const noCommissionEmbed = new EmbedBuilder()
         .setTitle("🎉 YAYY NO COMMISSION!")
         .setDescription(
-          `**Lucky you!** Deals under $10 ${ticketData.amount} have NO service fee!\n\n` +
+          `**Lucky you!** Deals under $30 ${ticketData.amount} have NO service fee!\n\n` +
             `**Deal Amount:** $${ticketData.amount.toFixed(2)}\n` +
             `**Service Fee:** $0.00 ✨\n\n` +
             `**You both pay exactly what was agreed:**\n` +
@@ -2381,7 +2381,7 @@ export async function execute(interaction, client) {
               "• Deals $300+: **1%**\n" +
               "• Deals under $300: **$2**\n" +
               "• Deals under $50: **$0.50**\n" +
-              "• Deals under $10 are **FREE**\n" +
+              "• Deals under $30 are **FREE**\n" +
               "• **USDT & USDC** have a **$1 subcharge**\n\n" +
               "Press the dropdown below to select & initiate a deal involving:\n" +
               "**Bitcoin, Ethereum, Litecoin, Solana, USDT [ERC-20], USDC [ERC-20].**"
