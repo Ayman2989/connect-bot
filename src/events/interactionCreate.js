@@ -202,8 +202,13 @@ async function postCompletedDeal(guild, ticketData, txHash) {
       .setColor("#153ee9")
       .setTimestamp()
       .setFooter({
-        text: `Ticket: ${ticketData.channelId} | Real IDs (Owner Only): Buyer: ${buyerRealName} | Seller: ${sellerRealName}`,
+        text: `Ticket: ${ticketData.channelId}`,
       });
+    //    .setFooter({
+    //   text: `Ticket: ${ticketData.channelId}
+    //    | Real IDs (Owner Only): Buyer: ${buyerRealName} | Seller: ${sellerRealName}
+    //    `,
+    // });
 
     await completedChannel.send({ embeds: [dealEmbed] });
 
